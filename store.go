@@ -20,10 +20,11 @@ type MarshalFunc func(v interface{}) ([]byte, error)
 
 // UnmarshalFunc is any unmarshaler.
 type UnmarshalFunc func(data []byte, v interface{}) error
-
+const StoreInLocalDirectory =  "%LOCAL%"
 var (
 	applicationName = ""
 	formats         = map[string]format{}
+	storeInAppDirectory = false
 )
 
 type format struct {
@@ -53,7 +54,9 @@ func init() {
 //
 // Beware: Store will panic on any sensitive calls unless you run Init inb4.
 func Init(application string) {
+	storeInAppDirectory =  application == StoreInLocalDirectory
 	applicationName = application
+
 }
 
 // Register is the way you register configuration formats, by mapping some
@@ -177,25 +180,31 @@ func extension(path string) string {
 
 // buildPlatformPath builds a platform-dependent path for relative path given.
 func buildPlatformPath(path string) string {
-	if runtime.GOOS == "windows" {
-		return fmt.Sprintf("%s\\%s\\%s", os.Getenv("APPDATA"),
-			applicationName,
-			path)
-	}
 
-	var unixConfigDir string
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		unixConfigDir = xdg
+	var configDir string
+	if storeInAppDirectory {
+		ex, err := os.Executable()
+		if err != nil {
+			panic(err )
+		}
+		configDir = filepath.Dir(ex)
 	} else {
-		unixConfigDir = os.Getenv("HOME") + "/.config"
+		if runtime.GOOS == "windows" {
+			configDir = fmt.Sprintf("%s\\%s",os.Getenv("APPDATA"),
+						applicationName)
+		} else {
+			if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+				configDir = xdg
+			} else {
+				configDir = os.Getenv("HOME") + "/.config"
+			}
+		}
 	}
-
-	return fmt.Sprintf("%s/%s/%s", unixConfigDir,
-		applicationName,
-		path)
+	return fmt.Sprintf("%s"+string(os.PathSeparator)+"%s", configDir, path)
 }
 
 // SetApplicationName is DEPRECATED (use Init instead).
 func SetApplicationName(handle string) {
 	applicationName = handle
+	storeInAppDirectory = handle == StoreInLocalDirectory
 }
