@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
-
+	"errors"
 	"github.com/BurntSushi/toml"
 	"gopkg.in/yaml.v2"
 )
@@ -18,9 +18,12 @@ import (
 // MarshalFunc is any marshaler.
 type MarshalFunc func(v interface{}) ([]byte, error)
 
+
 // UnmarshalFunc is any unmarshaler.
 type UnmarshalFunc func(data []byte, v interface{}) error
 const StoreInLocalDirectory =  "%LOCAL%"
+var  ErrAppNameNotFound = errors.New("store: application name not defined")
+var  ErrUnknownFormat = errors.New("store: unknown configuration format")
 var (
 	applicationName = ""
 	formats         = map[string]format{}
@@ -39,6 +42,9 @@ func init() {
 
 	formats["toml"] = format{
 		m: func(v interface{}) ([]byte, error) {
+			defer func(){
+				recover()
+			}()
 			b := bytes.Buffer{}
 			err := toml.NewEncoder(&b).Encode(v)
 			return b.Bytes(), err
@@ -51,8 +57,8 @@ func init() {
 // configuration directory on the file system. By default, Store puts all the
 // config data to to $XDG_CONFIG_HOME or $HOME on Linux systems
 // and to %APPDATA% on Windows.
-//
-// Beware: Store will panic on any sensitive calls unless you run Init inb4.
+// or send StoreInLocalDirectory constant for store init file in application directory
+
 func Init(application string) {
 	storeInAppDirectory =  application == StoreInLocalDirectory
 	applicationName = application
@@ -75,17 +81,17 @@ func Register(extension string, m MarshalFunc, um UnmarshalFunc) {
 // If `path` doesn't exist, Load will create one and emptify `v` pointer by
 // replacing it with a newly created object, derived from type of `v`.
 //
-// Load panics on unknown configuration formats.
+
 func Load(path string, v interface{}) error {
 	if applicationName == "" {
-		panic("store: application name not defined")
+		return ErrAppNameNotFound
 	}
 
 	if format, ok := formats[extension(path)]; ok {
 		return LoadWith(path, v, format.um)
 	}
 
-	panic("store: unknown configuration format")
+	return ErrUnknownFormat
 }
 
 // Save puts a configuration from `v` pointer into a file `path`. Store
@@ -95,26 +101,29 @@ func Load(path string, v interface{}) error {
 //
 // Path is a full filename, including the file extension, e.g. "foobar.json".
 //
-// Save panics on unknown configuration formats.
+
 func Save(path string, v interface{}) error {
 	if applicationName == "" {
-		panic("store: application name not defined")
+		return ErrAppNameNotFound
 	}
 
 	if format, ok := formats[extension(path)]; ok {
 		return SaveWith(path, v, format.m)
 	}
 
-	panic("store: unknown configuration format")
+	return ErrUnknownFormat
 }
 
 // LoadWith loads the configuration using any unmarshaler at all.
 func LoadWith(path string, v interface{}, um UnmarshalFunc) error {
 	if applicationName == "" {
-		panic("store: application name not defined")
+		return ErrAppNameNotFound
 	}
 
-	globalPath := buildPlatformPath(path)
+	globalPath, err  := buildPlatformPath(path)
+	if err != nil {
+		return err 
+	}
 
 	data, err := ioutil.ReadFile(globalPath)
 
@@ -143,7 +152,7 @@ func LoadWith(path string, v interface{}, um UnmarshalFunc) error {
 // SaveWith saves the configuration using any marshaler at all.
 func SaveWith(path string, v interface{}, m MarshalFunc) error {
 	if applicationName == "" {
-		panic("store: application name not defined")
+		return ErrAppNameNotFound
 	}
 
 	var b bytes.Buffer
@@ -156,7 +165,10 @@ func SaveWith(path string, v interface{}, m MarshalFunc) error {
 
 	b.WriteRune('\n')
 
-	globalPath := buildPlatformPath(path)
+	globalPath, err  := buildPlatformPath(path)
+	if ( err != nil ){
+		return err 
+	}
 	if err := os.MkdirAll(filepath.Dir(globalPath), os.ModePerm); err != nil {
 		return err
 	}
@@ -179,13 +191,13 @@ func extension(path string) string {
 }
 
 // buildPlatformPath builds a platform-dependent path for relative path given.
-func buildPlatformPath(path string) string {
+func buildPlatformPath(path string) (string, error ) {
 
 	var configDir string
 	if storeInAppDirectory {
 		ex, err := os.Executable()
 		if err != nil {
-			panic(err )
+			return "",err
 		}
 		configDir = filepath.Dir(ex)
 	} else {
@@ -200,7 +212,7 @@ func buildPlatformPath(path string) string {
 			}
 		}
 	}
-	return fmt.Sprintf("%s"+string(os.PathSeparator)+"%s", configDir, path)
+	return fmt.Sprintf("%s"+string(os.PathSeparator)+"%s", configDir, path) , nil
 }
 
 // SetApplicationName is DEPRECATED (use Init instead).

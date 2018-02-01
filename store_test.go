@@ -59,7 +59,12 @@ func TestSaveLoad(t *testing.T) {
 		return
 	}
 
-	defer os.Remove(buildPlatformPath(settingsFile))
+	path, err := buildPlatformPath(settingsFile)
+	if err != nil {
+		t.Fatalf("can't build platform path : %s\n", err)
+		return
+	}
+	defer os.Remove(path)
 
 	var newSettings Settings
 
