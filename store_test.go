@@ -78,3 +78,44 @@ func TestSaveLoad(t *testing.T) {
 		t.Fatalf("broken")
 	}
 }
+
+func TestSaveLoadLocal(t *testing.T) {
+	Init(StoreInLocalDirectory )
+
+	settings := Settings{
+		Age: 42,
+		Cats: []Cat{
+			Cat{"Rudolph", true},
+			Cat{"Patrick", false},
+			Cat{"Jeremy", true},
+		},
+		RandomString: "gophers are gonna conquer the world",
+	}
+
+	settingsFile := "path/to/preferences.toml"
+
+	err := Save(settingsFile, &settings)
+	if err != nil {
+		t.Fatalf("failed to save preferences: %s\n", err)
+		return
+	}
+
+	path, err := buildPlatformPath(settingsFile)
+	if err != nil {
+		t.Fatalf("can't build platform path : %s\n", err)
+		return
+	}
+	defer os.Remove(path)
+
+	var newSettings Settings
+
+	err = Load(settingsFile, &newSettings)
+	if err != nil {
+		t.Fatalf("failed to load preferences: %s\n", err)
+		return
+	}
+
+	if !equal(settings, newSettings) {
+		t.Fatalf("broken")
+	}
+}
