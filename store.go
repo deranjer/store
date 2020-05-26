@@ -4,30 +4,27 @@ package store
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
-	"errors"
+
 	"github.com/BurntSushi/toml"
-	"gopkg.in/yaml.v2"
+	yaml "gopkg.in/yaml.v2"
 )
 
 // MarshalFunc is any marshaler.
 type MarshalFunc func(v interface{}) ([]byte, error)
 
-
 // UnmarshalFunc is any unmarshaler.
 type UnmarshalFunc func(data []byte, v interface{}) error
-const StoreInLocalDirectory =  "%LOCAL%"
-var  ErrAppNameNotFound = errors.New("store: application name not defined")
-var  ErrUnknownFormat = errors.New("store: unknown configuration format")
+
+// ErrUnknownFormat is used when we can't automatically determine the file format type (or it is a type we don't support)
+var ErrUnknownFormat = errors.New("store: unknown configuration format")
 var (
-	applicationName = ""
-	formats         = map[string]format{}
-	storeInAppDirectory = false
+	formats = map[string]format{}
 )
 
 type format struct {
@@ -42,7 +39,7 @@ func init() {
 
 	formats["toml"] = format{
 		m: func(v interface{}) ([]byte, error) {
-			defer func(){
+			defer func() {
 				recover()
 			}()
 			b := bytes.Buffer{}
@@ -51,18 +48,6 @@ func init() {
 		},
 		um: toml.Unmarshal,
 	}
-}
-
-// Init sets up a unique application name that will be used for name of the
-// configuration directory on the file system. By default, Store puts all the
-// config data to to $XDG_CONFIG_HOME or $HOME on Linux systems
-// and to %APPDATA% on Windows.
-// or send StoreInLocalDirectory constant for store init file in application directory
-
-func Init(application string) {
-	storeInAppDirectory =  application == StoreInLocalDirectory
-	applicationName = application
-
 }
 
 // Register is the way you register configuration formats, by mapping some
@@ -83,10 +68,6 @@ func Register(extension string, m MarshalFunc, um UnmarshalFunc) {
 //
 
 func Load(path string, v interface{}) error {
-	if applicationName == "" {
-		return ErrAppNameNotFound
-	}
-
 	if format, ok := formats[extension(path)]; ok {
 		return LoadWith(path, v, format.um)
 	}
@@ -103,10 +84,6 @@ func Load(path string, v interface{}) error {
 //
 
 func Save(path string, v interface{}) error {
-	if applicationName == "" {
-		return ErrAppNameNotFound
-	}
-
 	if format, ok := formats[extension(path)]; ok {
 		return SaveWith(path, v, format.m)
 	}
@@ -116,16 +93,8 @@ func Save(path string, v interface{}) error {
 
 // LoadWith loads the configuration using any unmarshaler at all.
 func LoadWith(path string, v interface{}, um UnmarshalFunc) error {
-	if applicationName == "" {
-		return ErrAppNameNotFound
-	}
 
-	globalPath, err  := buildPlatformPath(path)
-	if err != nil {
-		return err 
-	}
-
-	data, err := ioutil.ReadFile(globalPath)
+	data, err := ioutil.ReadFile(path)
 
 	if err != nil {
 		// There is a chance that file we are looking for
@@ -151,9 +120,6 @@ func LoadWith(path string, v interface{}, um UnmarshalFunc) error {
 
 // SaveWith saves the configuration using any marshaler at all.
 func SaveWith(path string, v interface{}, m MarshalFunc) error {
-	if applicationName == "" {
-		return ErrAppNameNotFound
-	}
 
 	var b bytes.Buffer
 
@@ -165,15 +131,11 @@ func SaveWith(path string, v interface{}, m MarshalFunc) error {
 
 	b.WriteRune('\n')
 
-	globalPath, err  := buildPlatformPath(path)
-	if ( err != nil ){
-		return err 
-	}
-	if err := os.MkdirAll(filepath.Dir(globalPath), os.ModePerm); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
 		return err
 	}
 
-	if err := ioutil.WriteFile(globalPath, b.Bytes(), os.ModePerm); err != nil {
+	if err := ioutil.WriteFile(path, b.Bytes(), os.ModePerm); err != nil {
 		return err
 	}
 
@@ -188,35 +150,4 @@ func extension(path string) string {
 	}
 
 	return ""
-}
-
-// buildPlatformPath builds a platform-dependent path for relative path given.
-func buildPlatformPath(path string) (string, error ) {
-
-	var configDir string
-	if storeInAppDirectory {
-		ex, err := os.Executable()
-		if err != nil {
-			return "",err
-		}
-		configDir = filepath.Dir(ex)
-	} else {
-		if runtime.GOOS == "windows" {
-			configDir = fmt.Sprintf("%s\\%s",os.Getenv("APPDATA"),
-						applicationName)
-		} else {
-			if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-				configDir = xdg
-			} else {
-				configDir = os.Getenv("HOME") + "/.config"
-			}
-		}
-	}
-	return fmt.Sprintf("%s"+string(os.PathSeparator)+"%s", configDir, path) , nil
-}
-
-// SetApplicationName is DEPRECATED (use Init instead).
-func SetApplicationName(handle string) {
-	applicationName = handle
-	storeInAppDirectory = handle == StoreInLocalDirectory
 }
